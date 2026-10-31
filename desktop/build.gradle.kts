@@ -100,6 +100,14 @@ dependencies {
     // tar 读写（XZ 只负责压缩层，tar 容器仍用 commons-compress；jcefmaven 已传递引入，这里显式声明）
     implementation("org.apache.commons:commons-compress:1.27.1")
 
+    // Linux 托盘：JDK AWT TrayIcon 走已淘汰的 XEmbed 协议，新桌面（KDE 6/GNOME）不转发其
+    // 点击事件（图标能显示但永远无反应，JDK-8341144 上游无修复计划）；dorkbox SystemTray
+    // 走原生 StatusNotifierItem/DBus，KDE/GNOME 原生渲染菜单。仅 Linux 构建打入，
+    // Windows 继续用 AWT+Win32（暗色原生菜单），失败时 Linux 也回退 AWT 兜底。
+    if (!isWindowsHost && !isMacHost) {
+        implementation("com.dorkbox:SystemTray:4.4")
+    }
+
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

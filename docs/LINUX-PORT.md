@@ -13,7 +13,7 @@
 | 凭证加密（普通档） | ✅（机器指纹 = `/etc/machine-id`） |
 | ffplay 视频预览 | ✅ 独立窗口播放（不嵌入应用窗口，嵌入仅 Windows） |
 | 浏览器 Cookie 一键导入 | ⚠️ 仅 Firefox（Chromium 系 cookie 走 keyring 加密，暂不支持） |
-| 系统托盘 | ✅ AWT 托盘 + Swing 右键菜单（Win32 原生菜单仅 Windows） |
+| 系统托盘 | ✅ dorkbox SystemTray（原生 StatusNotifierItem/DBus，KDE 原生菜单；见下） |
 | 系统代理（system 模式） | ✅ 读 `https_proxy` / `all_proxy` / `http_proxy` 环境变量（SOCKS 值跳过并记日志） |
 | 高分屏（HiDPI） | ✅ 自动读 KDE 缩放并补偿（见下文） |
 | 下载防休眠 / 通知中心进度条 | ❌ Windows 专属，Linux 下 no-op（不影响下载本身） |
@@ -51,6 +51,16 @@ Linux 的 JVM 跑在 XWayland 下只能拿到**整数**缩放（KDE/GNOME 的 1.
 - 1.6 → 2 倍渲染：**清晰**（真实 2x 光栅化，无插值模糊），但比 KDE 原生应用大 ~25%；
 - 不满意可设环境变量 `YUNXPC_UI_SCALE`（支持小数如 `1.5`；`1` / `off` 关闭补偿）；
 - 诊断日志：启动日志搜 `YunX-UiScale`，会打印检测到的桌面缩放与最终 AWT transform。
+
+### 托盘说明（为什么 Linux 不用 AWT）
+
+JDK 的 AWT TrayIcon 走**已淘汰的 XEmbed 协议**，新桌面（KDE 6 / GNOME）不再向其转发
+鼠标事件——图标能显示但点击永远无反应（[JDK-8341144](https://bugs.openjdk.org/browse/JDK-8341144)，
+上游无修复计划）。Linux 版因此引入 [dorkbox SystemTray](https://github.com/dorkbox/SystemTray)
+（Apache 2.0，仅 Linux 构建打入，Windows 继续用 AWT + Win32 暗色菜单），走原生
+**StatusNotifierItem / D-Bus**：图标与菜单由桌面环境原生渲染，交互是 D-Bus 方法调用
+（不经 X 事件转发），KDE/GNOME 下可靠。dorkbox 初始化失败时自动回退 AWT（仅图标可见）。
+注意：SNI 模式下 tooltip 与"左键单击激活"支持有限，请以右键菜单（首项即「显示主窗口」）为准。
 
 ### Linux 专属环境变量
 
