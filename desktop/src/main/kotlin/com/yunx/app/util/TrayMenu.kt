@@ -1,10 +1,13 @@
 package com.yunx.app.util
 
 import java.awt.EventQueue
-import javax.swing.JPopupMenu
 import javax.swing.JMenuItem
+import javax.swing.JPopupMenu
 import javax.swing.JSeparator
+import javax.swing.JWindow
 import javax.swing.UIManager
+import javax.swing.event.PopupMenuEvent
+import javax.swing.event.PopupMenuListener
 
 /**
  * 托盘右键菜单的跨平台入口。
@@ -33,29 +36,44 @@ object TrayMenu {
         return 0
     }
 
-    /** Swing 菜单：无 invoker 窗口时直接按屏幕坐标显示；选中后回调并自动消失 */
+    /**
+     * Swing 菜单：JPopupMenu 无 invoker 时在部分 WM（KDE）上不显示、也不能点击外部自动关闭，
+     * 这里挂一个 1x1 全透明窗作 invoker，菜单关闭（选中/点外部/Esc）时一并销毁。
+     */
     private fun showSwing(items: List<Pair<String, Int>>, x: Int, y: Int, onCommand: (Int) -> Unit) {
-        runCatching {
-            try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) } catch (_: Exception) {}
-            val menu = JPopupMenu()
-            for ((label, id) in items) {
-                if (label == "-") {
-                    menu.add(JSeparator())
-                } else {
-                    menu.add(JMenuItem(label).apply {
-                        addActionListener {
-                            runCatching { menu.setVisible(false) }
-                            onCommand(id)
-                        }
-                    })
+        EventQueue.invokeLater {
+            runCatching {
+                try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) } catch (_: Exception) {}
+                val menu = JPopupMenu()
+                for ((label, id) in items) {
+                    if (label == "-") {
+                        menu.add(JSeparator())
+                    } else {
+                        menu.add(JMenuItem(label).apply {
+                            addActionListener {
+                                runCatching { menu.isVisible = false }
+                                onCommand(id)
+                            }
+                        })
+                    }
                 }
-            }
-            menu.isFocusable = true
-            // invoker 为 null 时按屏幕坐标显示；提前 setLocation 保证多显示器下不越界
-            menu.setLocation(x, y)
-            menu.show(null, x, y)
-            // 无 invoker 的 JPopupMenu 不会自动抢焦点，手动请求以支持键盘导航/点击外部关闭
-            menu.requestFocusInWindow()
-        }.onFailure { Log.w("YunX-Tray", "TrayMenu show failed: ${it.message}") }
+                val invoker = JWindow().apply {
+                    isAlwaysOnTop = true
+                    runCatching { opacity = 0f }
+                    bounds = java.awt.Rectangle(x, y, 1, 1)
+                    isVisible = true
+                }
+                menu.addPopupMenuListener(object : PopupMenuListener {
+                    override fun popupMenuWillBecomeInvisible(e: PopupMenuEvent) {
+                        EventQueue.invokeLater { runCatching { invoker.dispose() } }
+                    }
+                    override fun popupMenuWillBecomeVisible(e: PopupMenuEvent) {}
+                    override fun popupMenuCanceled(e: PopupMenuEvent) {}
+                })
+                menu.isFocusable = true
+                menu.show(invoker, 0, 0)
+                menu.requestFocusInWindow()
+            }.onFailure { Log.w("YunX-Tray", "TrayMenu show failed: ${it.message}") }
+        }
     }
 }

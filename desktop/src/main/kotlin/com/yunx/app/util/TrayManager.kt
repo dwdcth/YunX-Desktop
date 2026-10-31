@@ -17,6 +17,8 @@ import javax.imageio.ImageIO
  */
 object TrayManager {
 
+    private const val TAG = "YunX-Tray"
+
     private var trayIcon: TrayIcon? = null
 
     /** 是否已安装托盘图标 */
@@ -27,28 +29,36 @@ object TrayManager {
      * 安装托盘图标。
      * @param image 图标
      * @param onLeftClick 左键单击回调
-     * @param onRightClick 右键单击回调（屏幕坐标 x, y）
+     * @param onRightClick 右键回调（屏幕坐标 x, y）
      */
     fun install(
         image: BufferedImage,
         onLeftClick: () -> Unit,
         onRightClick: (Int, Int) -> Unit
     ) {
-        if (!SystemTray.isSupported()) return
+        if (!SystemTray.isSupported()) {
+            Log.w(TAG, "SystemTray 不可用，托盘功能关闭")
+            return
+        }
         if (trayIcon != null) uninstall()
 
         val icon = TrayIcon(image.getScaledInstance(16, 16, Image.SCALE_SMOOTH), "云析 YunX-Desktop").apply {
             isImageAutoSize = true
-            // 空 PopupMenu：Windows 必须设才能收到右键事件
-            popupMenu = PopupMenu()
+            if (HostOs.isWindows) {
+                // Windows 必须设（哪怕空的）PopupMenu 才能收到右键事件；
+                // Linux(XEmbed) 上设了反而吞掉右键，macOS 无此机制 —— 都不设
+                popupMenu = PopupMenu()
+            }
             addMouseListener(object : MouseAdapter() {
-                override fun mouseClicked(e: MouseEvent) {
-                    if (e.button == MouseEvent.BUTTON1) onLeftClick()
-                }
+                // 统一用 mousePressed 分发：Linux(XEmbed/xembedsniproxy) 上 mouseClicked
+                // 从不触发（JDK 已知行为），Windows 上按下即响应也更接近原生托盘手感
                 override fun mousePressed(e: MouseEvent) {
-                    if (e.button == MouseEvent.BUTTON3) {
-                        e.consume()
-                        onRightClick(e.xOnScreen, e.yOnScreen)
+                    when (e.button) {
+                        MouseEvent.BUTTON1 -> onLeftClick()
+                        MouseEvent.BUTTON3 -> {
+                            e.consume()
+                            onRightClick(e.xOnScreen, e.yOnScreen)
+                        }
                     }
                 }
             })
@@ -56,7 +66,8 @@ object TrayManager {
         runCatching {
             SystemTray.getSystemTray().add(icon)
             trayIcon = icon
-        }
+            Log.i(TAG, "托盘图标已安装")
+        }.onFailure { Log.w(TAG, "托盘图标安装失败: ${it.message}") }
     }
 
     /** 移除托盘图标 */
