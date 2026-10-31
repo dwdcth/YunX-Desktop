@@ -19,14 +19,21 @@ import com.yunx.app.ui.jcef.JcefHolder
 import com.yunx.app.ui.theme.ComposeEmptyActivityTheme
 import com.yunx.app.util.DarkMode
 import com.yunx.app.util.DesktopActions
+import com.yunx.app.util.HostOs
 import com.yunx.app.util.RenderApiChooser
 import com.yunx.app.util.SingleInstance
 import com.yunx.app.util.TrayManager
-import com.yunx.app.util.Win32PopupMenu
+import com.yunx.app.util.TrayMenu
+import com.yunx.app.util.UiScaleSetup
 import com.yunx.app.util.WindowFx
 import androidx.compose.ui.graphics.toComposeImageBitmap
 
 fun main(args: Array<String>) {
+    // ★ 必须是 main 的第一件事：Linux 高分屏（XWayland 分数缩放）下 JVM 拿不到桌面缩放，
+    //   要在第一个 AWT 类加载之前设 sun.java2d.uiScale，否则界面按 96 DPI 渲染、字特别小。
+    //   Windows/macOS 的 DPI 由 AWT 原生处理，内部直接跳过。
+    UiScaleSetup.applyEarly()
+
     // 渲染后端：默认 OPENGL（GPU 渲染，动画流畅且文字清晰，2026-09-05 用户实测确认）。
     // 实测数据（125% DPI）：SOFTWARE 每帧 CPU 光栅化约 130 万像素，设置/下载页持续交互只有
     // ~10 FPS 且 UI 线程饱和；DIRECT3D 动画流畅但文字灰度发虚且 hinting 调节无效；
@@ -102,6 +109,10 @@ fun main(args: Array<String>) {
 
     // 诊断模式：--jcef-smoke [url]，创建内嵌浏览器加载页面并输出 Cookie 统计后退出
     if (args.contains("--jcef-smoke")) {
+        if (HostOs.isMac) {
+            println("macOS 构建未包含 JCEF 原生库")
+            return
+        }
         val url = args.firstOrNull { it.startsWith("http") } ?: "https://pan.quark.cn"
         runJcefSmoke(url)
         return
@@ -110,9 +121,9 @@ fun main(args: Array<String>) {
     // 启动优化：JCEF（内嵌 Chromium）初始化耗时数秒、首次运行解包 200MB 更久，
     // 若在主线程同步初始化会阻塞窗口显示。Windows/Linux 下改为窗口显示后后台初始化
     // （CEF 消息循环由 CefApp 内部 Swing Timer 在 AWT EDT 泵动，与初始化线程无关）。
-    // macOS 受 AppKit 主线程约束，保持阻塞式初始化。
-    val isMac = System.getProperty("os.name", "").lowercase().contains("mac")
-    if (isMac) {
+    // macOS 受 AppKit 主线程约束，保持阻塞式初始化；且 macOS 第一版不带 JCEF 原生库，
+    // initBlocking 内部会直接返回（登录页保持 Cookie 粘贴）。
+    if (HostOs.isMac) {
         JcefHolder.initBlocking()
     }
 
@@ -148,6 +159,17 @@ fun main(args: Array<String>) {
         // 窗口状态提升为可共享状态：视频预览的全屏开关（PreviewFullscreen）需要它
         val windowState = remember { WindowState(size = DpSize(1100.dp, 760.dp)) }
 
+        // 托盘菜单命令处理（Windows 原生菜单同步返回 id；Linux/macOS Swing 菜单异步回调）
+        fun handleTrayCommand(cmd: Int, w: java.awt.Frame?) {
+            when (cmd) {
+                1 -> DesktopActions.bringWindowToFront(w)
+                2 -> {
+                    if (w != null) WindowFx.fadeOutThen(w) { exitApplication() }
+                    else exitApplication()
+                }
+            }
+        }
+
         Window(
             onCloseRequest = {
                 if (!suppressCloseRequest) closeRequested = true
@@ -166,11 +188,13 @@ fun main(args: Array<String>) {
             }
             // 窗口出现后再后台启动 JCEF，登录页通过 browserReady 状态自动切换
             androidx.compose.runtime.LaunchedEffect(Unit) {
-                JcefHolder.initInBackground()
-                // 预热抖音解析用的隐藏浏览器：实测单次解析耗时几乎全在 Chromium
-                // 冷启动与 acrawler 挑战上（诊断日志 1.8~9.4s），提前把浏览器与站点
-                // Cookie 热起来，用户真正粘贴链接时即可省掉这段冷启动。
-                HeadlessWebView.prewarm("https://www.douyin.com/")
+                if (!HostOs.isMac) {
+                    JcefHolder.initInBackground()
+                    // 预热抖音解析用的隐藏浏览器：实测单次解析耗时几乎全在 Chromium
+                    // 冷启动与 acrawler 挑战上（诊断日志 1.8~9.4s），提前把浏览器与站点
+                    // Cookie 热起来，用户真正粘贴链接时即可省掉这段冷启动。
+                    HeadlessWebView.prewarm("https://www.douyin.com/")
+                }
             }
             // 启动淡入：窗口 displayable 后压 0 → 等内容就绪 → 渐入
             androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -178,29 +202,22 @@ fun main(args: Array<String>) {
                     (window as? java.awt.Frame)?.let { WindowFx.scheduleFadeIn(it) }
                 }
             }
-            // 系统托盘：JNA 调 Win32 TrackPopupMenu（原生菜单，中文正常，暗色跟随系统）
+            // 系统托盘：右键菜单跨平台（Windows 用 Win32 原生菜单，Linux/macOS 用 Swing）
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 TrayManager.loadTrayIcon()?.let { icon ->
                     TrayManager.install(
                         image = icon,
                         onLeftClick = { DesktopActions.bringWindowToFront(mainWindow) },
                         onRightClick = { x, y ->
-                            val cmd = Win32PopupMenu.show(
+                            TrayMenu.show(
                                 items = listOf(
                                     "显示主窗口" to 1,
                                     "-" to 0,
                                     "退出" to 2
                                 ),
-                                x = x, y = y
-                            )
-                            when (cmd) {
-                                1 -> DesktopActions.bringWindowToFront(mainWindow)
-                                2 -> {
-                                    val w = mainWindow
-                                    if (w != null) WindowFx.fadeOutThen(w) { exitApplication() }
-                                    else exitApplication()
-                                }
-                            }
+                                x = x, y = y,
+                                onCommand = { cmd -> handleTrayCommand(cmd, mainWindow) }
+                            ).let { cmd -> if (cmd != 0) handleTrayCommand(cmd, mainWindow) }
                         }
                     )
                 }

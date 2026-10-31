@@ -3,6 +3,7 @@ package com.yunx.app.data.gopeed
 import com.yunx.app.data.network.GitHubMirror
 import com.yunx.app.data.network.HttpClients
 import com.yunx.app.data.update.UpdateChecker
+import com.yunx.app.util.HostOs
 import com.yunx.app.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -20,11 +21,11 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
 
 /**
- * Gopeed 内核（Windows exe）的云端获取：从 **Gopeed 官方 Release** 拉取
- * `gopeed-web-<版本>-windows-<架构>.zip`（无界面 web/服务端版），下载 → 校验 → 交给
- * [GopeedEngine.installFromArchive] 解包导入。
+ * Gopeed 内核的云端获取：从 **Gopeed 官方 Release** 拉取
+ * `gopeed-web-<版本>-<os>-<架构>.zip`（无界面 web/服务端版；os ∈ windows/macos/linux），
+ * 下载 → 校验 → 交给 [GopeedEngine.installFromArchive] 解包导入。
  *
- * 与上游 Android 版的差别：上游从私有内核仓库取 4 个 ABI 的 AAR；桌面直接取官方 Windows 包，
+ * 与上游 Android 版的差别：上游从私有内核仓库取 4 个 ABI 的 AAR；桌面直接取官方对应平台包，
  * 架构按 `os.arch` 映射（amd64 / arm64），官方包名后缀与之一一对应。
  *
  * 下载走项目既有的 [HttpClients.downloadClient]（跟随代理设置）；镜像前缀沿用「GitHub 下载镜像」
@@ -80,14 +81,12 @@ object GopeedKernelProvisioner {
         val digest: String
     )
 
-    /** 本机对应的官方包架构后缀：x86_64 → amd64，aarch64 → arm64 */
-    private fun archSuffix(): String {
-        val arch = System.getProperty("os.arch").orEmpty().lowercase()
-        return when {
-            arch.contains("aarch64") || arch.contains("arm64") -> "arm64"
-            else -> "amd64"
-        }
-    }
+    /**
+     * 官方 web 内核包全名。`version` 使用 Release tag，已含 `v` 时不再加前缀。
+     * 例：`gopeed-web-v1.9.3-windows-amd64.zip` / `gopeed-web-v1.9.3-linux-amd64.zip`。
+     */
+    fun assetName(version: String, osName: String, osArch: String): String =
+        "$ASSET_PREFIX$version-${HostOs.gopeedOsToken(osName)}-${HostOs.gopeedArchToken(osArch)}$ASSET_ARCH_SUFFIX"
 
     /**
      * 查询官方最新 Release，拼出本机可用的内核计划。
@@ -98,12 +97,12 @@ object GopeedKernelProvisioner {
         val json = fetchLatestJson()
         val tag = json.optString("tag_name")
         if (tag.isBlank()) throw IllegalStateException("官方 Release 缺少版本号")
-        val wanted = "$ASSET_PREFIX$tag-windows-${archSuffix()}$ASSET_ARCH_SUFFIX"
+        val wanted = assetName(tag, System.getProperty("os.name").orEmpty(), System.getProperty("os.arch").orEmpty())
         val asset = json.optJSONArray("assets")?.let { arr ->
             (0 until arr.length())
                 .mapNotNull { arr.optJSONObject(it) }
                 .firstOrNull { it.optString("name").equals(wanted, ignoreCase = true) }
-        } ?: throw IllegalStateException("官方 Release（$tag）里没有 Windows 内核包 $wanted")
+        } ?: throw IllegalStateException("官方 Release（$tag）里没有本平台内核包 $wanted")
         val direct = asset.optString("browser_download_url")
         if (direct.isBlank()) throw IllegalStateException("内核包缺少下载地址")
         Plan(

@@ -376,7 +376,7 @@ fun DownloadEngineScreen(
                             kernelVersion?.let { append(" · 核心版本 $it") }
                         }
                     } else {
-                        "未导入（需要官方 windows 版内核）"
+                        "未导入（需要官方对应平台版内核）"
                     }
                 )
                 Spacer(Modifier.height(6.dp))

@@ -9,6 +9,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * 下载期间阻止系统睡眠（Windows）：
  * kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)。
  * 该状态是线程本地属性，所有调用固定投递到同一线程执行，引用计数归零时解除。
+ *
+ * 非 Windows 平台 acquire/release 均为 no-op（不加载 kernel32），
+ * Linux/macOS 的会话级 inhibitor（org.freedesktop.ScreenSaver / IOPMAssertion）留待后续接入。
  */
 object WindowsKeepAwake {
     private interface Kernel32 : StdCallLibrary {
@@ -27,6 +30,7 @@ object WindowsKeepAwake {
     private val refs = AtomicInteger(0)
 
     fun acquire() {
+        if (!HostOs.isWindows) return
         if (refs.getAndIncrement() == 0) {
             executor.execute {
                 runCatching { Kernel32.INSTANCE.SetThreadExecutionState(ES_CONTINUOUS or ES_SYSTEM_REQUIRED) }
@@ -35,6 +39,7 @@ object WindowsKeepAwake {
     }
 
     fun release() {
+        if (!HostOs.isWindows) return
         if (refs.decrementAndGet() <= 0) {
             refs.set(0)
             executor.execute {

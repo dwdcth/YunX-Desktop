@@ -499,7 +499,7 @@ class SettingsRepository {
 
         /** 代理模式：不使用代理（直连） */
         const val PROXY_MODE_DIRECT = "direct"
-        /** 代理模式：使用系统代理（读 Windows 系统代理设置） */
+        /** 代理模式：使用系统代理（Windows 读注册表「Internet 选项」，Linux 读 *_proxy 环境变量） */
         const val PROXY_MODE_SYSTEM = "system"
         /** 代理模式：手动配置代理（主机 + 端口） */
         const val PROXY_MODE_MANUAL = "manual"

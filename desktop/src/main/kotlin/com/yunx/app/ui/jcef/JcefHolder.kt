@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.yunx.app.AppContext
+import com.yunx.app.util.HostOs
 import com.yunx.app.util.Log
 import me.friwi.jcefmaven.CefAppBuilder
 import org.cef.CefApp
@@ -46,6 +47,12 @@ object JcefHolder {
     private var initThread: Thread? = null
 
     fun initBlocking() {
+        if (HostOs.isMac) {
+            // macOS 第一版不带 JCEF 原生库（build.gradle.kts 未引入 natives），
+            // 这里直接返回，登录页保持 Cookie 粘贴模式
+            Log.i(TAG, "macOS 构建未包含 JCEF 原生库，使用 Cookie 粘贴登录")
+            return
+        }
         synchronized(lock) {
             if (browserReady) return
             var lastError: Throwable? = null
@@ -118,11 +125,12 @@ object JcefHolder {
      */
     private fun killStaleJcefHelpers() {
         runCatching {
-            val bundleDir = File(AppContext.cacheDir, "jcef-bundle")
-                .canonicalPath.lowercase().replace('/', '\\')
+            // 统一成小写 + 正斜杠比较（Windows 的 cmd 输出是反斜杠，Linux/macOS 是正斜杠）
+            val normalize: (String) -> String = { p -> p.lowercase().replace('\\', '/') }
+            val bundleDir = normalize(File(AppContext.cacheDir, "jcef-bundle").canonicalPath)
             ProcessHandle.allProcesses().forEach { ph ->
                 runCatching {
-                    val cmd = ph.info().command().orElse("").lowercase().replace('/', '\\')
+                    val cmd = normalize(ph.info().command().orElse(""))
                     if (cmd.startsWith(bundleDir)) {
                         Log.w(TAG, "kill stale jcef helper pid=${ph.pid()}: $cmd")
                         ph.destroyForcibly()

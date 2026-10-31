@@ -3,6 +3,7 @@ package com.yunx.app.data.gopeed
 import com.yunx.app.AppContext
 import com.yunx.app.data.download.DownloadPlatform
 import com.yunx.app.data.prefs.SettingsRepository
+import com.yunx.app.util.HostOs
 import com.yunx.app.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,7 +64,9 @@ object GopeedEngine {
 
     private const val TAG = "GopeedEngine"
     private const val DIR_NAME = "gopeed"
-    private const val EXE_NAME = "gopeed.exe"
+
+    /** 内核可执行文件名（Windows 是 gopeed.exe；Linux/macOS 官方包里是无扩展名的 gopeed） */
+    private val EXE_NAME = if (HostOs.isWindows) "gopeed.exe" else "gopeed"
     private const val BIN_DIR_NAME = "bin"
 
     /** 引擎 HTTP 协议的默认 UA（与 gopeed 自带默认一致）：任务未自带 UA 时使用，避免空 UA 被 CDN 限速 */
@@ -145,9 +148,9 @@ object GopeedEngine {
 
     /**
      * 从内核压缩包 / 可执行文件导入内核，支持：
-     * - `.zip`（官方 `gopeed-web-<ver>-windows-amd64.zip`）：在包内按名找 `gopeed.exe`（任意层级）；
-     * - `.exe`：直接作为内核拷入。
-     * 导入前会先停掉正在运行的引擎（否则 exe 被占用、写入失败）。
+     * - `.zip`（官方 `gopeed-web-<ver>-<os>-<arch>.zip`）：在包内按名找内核二进制（任意层级）；
+     * - `.exe` / 无扩展名可执行文件：直接作为内核拷入。
+     * 导入前会先停掉正在运行的引擎（否则 Windows 上 exe 被占用、写入失败）。
      * @return 安装后的内核文件
      */
     fun installFromArchive(archive: File): File {
@@ -173,10 +176,16 @@ object GopeedEngine {
                 }
             }
             if (!found) {
-                throw IllegalStateException("压缩包里没有找到 $EXE_NAME（请使用 Gopeed 官方 windows-amd64 包）")
+                throw IllegalStateException("压缩包里没有找到 $EXE_NAME（请使用 Gopeed 官方对应平台包）")
             }
         } else {
             archive.copyTo(target, overwrite = true)
+        }
+        // Linux/macOS：zip 与 copyTo 都不保留/不带执行位，落地后必须补上
+        if (!HostOs.isWindows) {
+            if (!target.setExecutable(true, false)) {
+                throw IllegalStateException("无法给内核加执行权限：${target.absolutePath}")
+            }
         }
         lastError = null
         _state.value = State.INSTALLED

@@ -1,5 +1,6 @@
 package com.yunx.app.data.security
 
+import com.yunx.app.util.HostOs
 import com.yunx.app.util.Log
 import com.sun.jna.platform.win32.Advapi32Util
 import com.sun.jna.platform.win32.Crypt32Util
@@ -34,8 +35,9 @@ enum class DbEncryptionLevel(val id: String, val label: String) {
     STRICT("strict", "较为严格"),
     STRICTEST("strictest", "严格");
 
-    /** 该档位在当前系统上是否可用（严格档需要 SQLCipher 原生库，暂未支持） */
-    val isSupported: Boolean get() = this != STRICTEST
+    /** 该档位在当前系统上是否可用（严格档需要 SQLCipher 原生库，暂未支持；较为严格档的 DPAPI 仅 Windows 有） */
+    val isSupported: Boolean
+        get() = this != STRICTEST && (this != STRICT || HostOs.isWindows)
 
     /** 密钥是否绑定本机（换机器后凭证将无法解密，需重新登录） */
     val isMachineBound: Boolean get() = this == NORMAL || this == STRICT
@@ -186,9 +188,10 @@ object DbKeyStore {
     /**
      * 机器派生密钥：PBKDF2(机器指纹, salt)。
      *
-     * 指纹只用**开机即稳定、且不随账号改名而变**的三项：Windows MachineGuid（注册表，机器唯一）+ OS + 架构。
+     * 指纹只用**开机即稳定、且不随账号改名而变**的机器唯一 ID：Windows MachineGuid（注册表）、
+     * Linux /etc/machine-id（systemd），再拼 OS 与架构。
      * ★ 刻意不掺用户名/计算机名：用户改一次计算机名就会解不开自己的凭证，代价远大于收益。
-     * 读不到 MachineGuid 时退回「主机名 + 用户名」（仍有绑定效果，但改名会失效，日志会记一条）。
+     * 读不到机器 ID 时退回抛 [MachineFingerprintUnavailable]（宁可不解包也不换指纹）。
      */
     private fun machineKey(salt: ByteArray): SecretKeySpec {
         val spec = PBEKeySpec(machineFingerprint().toCharArray(), salt, PBKDF2_ITERATIONS, 256)
@@ -212,17 +215,26 @@ object DbKeyStore {
         append(System.getProperty("os.arch").orEmpty()).append('|')
         append(
             machineGuid() ?: throw MachineFingerprintUnavailable(
-                "暂时读不到 MachineGuid，本次不做密钥解包（下次会重试）"
+                "暂时读不到机器唯一 ID（MachineGuid / machine-id），本次不做密钥解包（下次会重试）"
             )
         )
     }
 
-    /** Windows MachineGuid（HKLM\SOFTWARE\Microsoft\Cryptography），普通用户可读 */
-    private fun machineGuid(): String? = runCatching {
-        Advapi32Util.registryGetStringValue(
-            WinReg.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Cryptography", "MachineGuid"
-        ).takeIf { it.isNotBlank() }
-    }.getOrNull()
+    /** Windows MachineGuid（HKLM\SOFTWARE\Microsoft\Cryptography），普通用户可读；Linux 读 /etc/machine-id（systemd 机器唯一 ID，角色等同） */
+    private fun machineGuid(): String? = when {
+        isWindows() -> runCatching {
+            Advapi32Util.registryGetStringValue(
+                WinReg.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Cryptography", "MachineGuid"
+            ).takeIf { it.isNotBlank() }
+        }.getOrNull()
+        // Linux：/etc/machine-id（systemd 生成、装机即固定）；无 systemd 的环境退回 DBus 的同名文件
+        else -> runCatching {
+            sequenceOf("/etc/machine-id", "/var/lib/dbus/machine-id")
+                .map { File(it) }
+                .firstOrNull { it.isFile }
+                ?.readText()?.trim()?.takeIf { it.isNotEmpty() }
+        }.getOrNull()
+    }
 
     /** 较为严格档：Windows DPAPI（CryptProtectData，绑定当前登录用户） */
     private fun wrapDpapi(key: ByteArray): String {

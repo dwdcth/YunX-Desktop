@@ -110,7 +110,7 @@ fun AboutScreen(
                 title = "应用简介",
                 description = "云析（YunX）是一款网盘分享链接 + 视频链接解析与高速下载工具。" +
                     "粘贴分享链接或视频短链，登录账号后即可浏览内容、在线预览并直接高速下载。\n" +
-                    "Windows 桌面端：YunX-Desktop 基于 Compose Multiplatform 构建，" +
+                    "桌面端：YunX-Desktop 基于 Compose Multiplatform 构建（Windows / Linux），" +
                     "在安卓版能力之上补齐桌面交互（右键菜单、文件夹整夹下载、可拖动窗口）。"
             )
             

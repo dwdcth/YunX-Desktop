@@ -34,6 +34,7 @@ import com.yunx.app.data.update.UpdateChecker
 import com.yunx.app.ui.components.FadeAlertDialog
 import com.yunx.app.ui.components.GitHubMarkdownImageTransformer
 import com.yunx.app.ui.theme.compactMarkdownTypography
+import com.yunx.app.util.HostOs
 
 /**
  * 发现新版本弹窗：标题 + 当前/最新版本 + 更新说明（Markdown 渲染、可滚动限高）+ 下载更新 / 稍后 / 不再提示该版本。
@@ -59,8 +60,22 @@ fun UpdateDialog(
      */
     mandatory: Boolean = false
 ) {
-    val exeAsset = release.assets.firstOrNull { it.name.endsWith(".exe", true) }
-    val zipAsset = release.assets.firstOrNull { it.name.endsWith(".zip", true) }
+    // 资产按当前平台挑选：Windows → 安装版(.exe) + 便携版(.zip)；
+    // Linux → AppImage；macOS → dmg。Release 未提供本平台资产时两个入口都不显示
+    //（「该版本未提供安装包」分支兜底，用户仍可前往发布页自取）。
+    val (exeAsset, exeLabel) = when {
+        HostOs.isWindows ->
+            release.assets.firstOrNull { it.name.endsWith(".exe", true) } to "下载安装版 (.exe)"
+        HostOs.isMac ->
+            release.assets.firstOrNull { it.name.endsWith(".dmg", true) } to "下载安装版 (.dmg)"
+        else ->
+            release.assets.firstOrNull { it.name.endsWith(".AppImage", true) } to "下载 AppImage"
+    }
+    val (zipAsset, zipLabel) = when {
+        HostOs.isWindows ->
+            release.assets.firstOrNull { it.name.endsWith(".zip", true) } to "下载便携版 (.zip)"
+        else -> null to ""
+    }
     // 说明里的图片复用 README 的自研加载器（无 Coil，走 GitHubMirror 统一镜像加速）
     GitHubMarkdownImageTransformer.mirrorPrefix = GitHubMirror.activePrefix()
     // 紧凑字号：与 README 共用同一份排版（见 ui/theme/Type.kt）
@@ -188,12 +203,12 @@ fun UpdateDialog(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("下载安装版 (.exe)")
+                            Text(exeLabel)
                         }
                     }
                     if (onDownloadMirrorAsset != null) {
                         TextButton(onClick = { onDownloadMirrorAsset(exeAsset.downloadUrl, exeAsset.name) }) {
-                            Text("镜像站下载安装版", color = MaterialTheme.colorScheme.primary)
+                            Text("镜像站下载", color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -217,7 +232,7 @@ fun UpdateDialog(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("下载便携版 (.zip)")
+                            Text(zipLabel)
                         }
                     }
                     if (onDownloadMirrorAsset != null) {
@@ -228,7 +243,7 @@ fun UpdateDialog(
                 }
                 if (exeAsset == null && zipAsset == null) {
                     Text(
-                        text = "该版本未提供安装包",
+                        text = "该版本未提供本平台的安装包，可前往发布页查看",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

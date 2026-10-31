@@ -110,6 +110,11 @@ object JcefNativesInstaller {
                         val copied = tar.copyTo(out, BUFFER_SIZE)
                         written += copied
                     }
+                    // Windows 无执行位概念；Linux/macOS 的 jcef_helper 等 CEF 二进制必须带 x，
+                    // tar 条目自带 POSIX mode（owner-x 位 0o100），解包时恢复
+                    if (entry.mode and 0b1_000_000 != 0) {
+                        target.setExecutable(true, false)
+                    }
                 }
                 Log.i(TAG, "CEF natives unpacked: ${written / 1024 / 1024} MB")
             }

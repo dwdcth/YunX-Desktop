@@ -45,49 +45,66 @@ object BrowserCookieImporter {
 
     /** 发现本机已安装浏览器的 Cookie 库目录（存在 cookies 文件才算） */
     fun discoverBrowsers(): List<BrowserInfo> {
-        val local = System.getenv("LOCALAPPDATA")?.let { File(it) } ?: return emptyList()
-        val roaming = System.getenv("APPDATA")?.let { File(it) } ?: return emptyList()
         val out = mutableListOf<BrowserInfo>()
 
-        // Chromium 系：<root>/Network/Cookies
-        val chromiumCandidates = listOf(
-            "Chrome" to listOf(File(local, "Google\\Chrome\\User Data")),
-            "Edge" to listOf(File(local, "Microsoft\\Edge\\User Data")),
-            "360极速浏览器" to listOf(File(local, "360Chrome\\Chrome\\User Data")),
-            "360安全浏览器" to listOf(
-                File(roaming, "360se6\\User Data"),
-                File(roaming, "360se\\User Data"),
-                File(local, "360se6\\User Data")
-            ),
-            "QQ浏览器" to listOf(File(local, "Tencent\\QQBrowser\\User Data")),
-            "搜狗浏览器" to listOf(
-                File(roaming, "SogouExplorer\\User Data"),
-                File(local, "SogouExplorer\\User Data")
-            ),
-            "Opera" to listOf(File(roaming, "Opera Software\\Opera Stable")),
-            "Brave" to listOf(File(local, "BraveSoftware\\Brave-Browser\\User Data")),
-            "Vivaldi" to listOf(File(local, "Vivaldi\\User Data"))
-        )
-        for ((name, roots) in chromiumCandidates) {
-            val existing = roots.filter { root ->
-                root.isDirectory && File(root, "Network\\Cookies").exists()
+        val local = System.getenv("LOCALAPPDATA")?.let { File(it) }
+        val roaming = System.getenv("APPDATA")?.let { File(it) }
+        if (local != null && roaming != null) {
+            // Chromium 系：<root>/Network/Cookies
+            val chromiumCandidates = listOf(
+                "Chrome" to listOf(File(local, "Google\\Chrome\\User Data")),
+                "Edge" to listOf(File(local, "Microsoft\\Edge\\User Data")),
+                "360极速浏览器" to listOf(File(local, "360Chrome\\Chrome\\User Data")),
+                "360安全浏览器" to listOf(
+                    File(roaming, "360se6\\User Data"),
+                    File(roaming, "360se\\User Data"),
+                    File(local, "360se6\\User Data")
+                ),
+                "QQ浏览器" to listOf(File(local, "Tencent\\QQBrowser\\User Data")),
+                "搜狗浏览器" to listOf(
+                    File(roaming, "SogouExplorer\\User Data"),
+                    File(local, "SogouExplorer\\User Data")
+                ),
+                "Opera" to listOf(File(roaming, "Opera Software\\Opera Stable")),
+                "Brave" to listOf(File(local, "BraveSoftware\\Brave-Browser\\User Data")),
+                "Vivaldi" to listOf(File(local, "Vivaldi\\User Data"))
+            )
+            for ((name, roots) in chromiumCandidates) {
+                val existing = roots.filter { root ->
+                    root.isDirectory && File(root, "Network\\Cookies").exists()
+                }
+                if (existing.isNotEmpty()) {
+                    out += BrowserInfo("chromium-$name", name, Kind.CHROMIUM, existing)
+                }
             }
-            if (existing.isNotEmpty()) {
-                out += BrowserInfo("chromium-$name", name, Kind.CHROMIUM, existing)
+
+            // Windows Firefox：<Profiles>/xxx/cookies.sqlite
+            File(roaming, "Mozilla\\Firefox\\Profiles").takeIf { it.isDirectory }?.let { ffRoot ->
+                profilesOf(ffRoot)?.let { out += BrowserInfo("firefox", "Firefox", Kind.FIREFOX, it) }
             }
+            return out
         }
 
-        // Firefox：<Profiles>/xxx/cookies.sqlite
-        val ffRoot = File(roaming, "Mozilla\\Firefox\\Profiles")
-        if (ffRoot.isDirectory) {
-            val profiles = ffRoot.listFiles { f -> f.isDirectory && File(f, "cookies.sqlite").exists() }
-                ?.toList() ?: emptyList()
-            if (profiles.isNotEmpty()) {
-                out += BrowserInfo("firefox", "Firefox", Kind.FIREFOX, profiles)
-            }
-        }
+        // Linux/macOS：Firefox cookie 是明文（cookies.sqlite），无需解密即可导入；
+        // Chromium 系的 encrypted_value 走 keyring/libsecret 加密（Chrome 80+），暂不支持。
+        val home = File(System.getProperty("user.home"))
+        val ffRoots = listOf(
+            File(home, ".mozilla/firefox"),                    // Linux 官方包
+            File(home, ".var/app/org.mozilla.firefox/.mozilla/firefox"), // Flatpak
+            File(home, "Library/Application Support/Firefox")   // macOS
+        )
+        ffRoots.asSequence()
+            .filter { it.isDirectory }
+            .mapNotNull { profilesOf(it) }
+            .firstOrNull()
+            ?.let { out += BrowserInfo("firefox", "Firefox", Kind.FIREFOX, it) }
         return out
     }
+
+    /** 目录下的 Firefox profile（含 cookies.sqlite 的子目录）；无则 null */
+    private fun profilesOf(ffRoot: File): List<File>? =
+        ffRoot.listFiles { f -> f.isDirectory && File(f, "cookies.sqlite").exists() }
+            ?.takeIf { it.isNotEmpty() }?.toList()
 
     /** 从指定浏览器导入指定平台的 Cookie；未找到返回 null */
     fun importFrom(browser: BrowserInfo, domains: List<String>): FoundCookies? =

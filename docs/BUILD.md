@@ -4,7 +4,7 @@
 
 ## 环境要求
 
-要求：Windows 10/11 x64。
+Windows（10/11 x64，主要发布目标；Linux 见下节）。
 
 | 依赖 | 说明 |
 | --- | --- |
@@ -16,7 +16,23 @@
 **缺 C++ 编译器时**：`run` / `package` / `installer` 会在编译 `darkmode.dll` 这一步失败；
 `run.ps1 build` 只编译 Kotlin，不受影响。
 
+### Linux（x86_64）
+
+要求：主流发行版 + X11/Wayland 桌面。
+
+| 依赖 | 说明 |
+| --- | --- |
+| JDK 17 | `sudo pacman -S jdk17-openjdk`（Arch 系）/ `sudo apt install openjdk-17-jdk`（Debian 系）；缺失时 Gradle toolchain 会尝试经 foojay 自动下载到 `~/.gradle/jdks` |
+| Gradle | 由 wrapper 自动拉取（腾讯镜像源），无需手动安装 |
+| ffmpeg / ffplay | 视频预览与 DASH 合轨：`sudo pacman -S ffmpeg`；缺失时应用内会提示，不影响其他功能 |
+| C++ 编译器 | **不需要**（darkmode.dll 仅 Windows 托盘菜单用，非 Windows 主机自动跳过） |
+
+CEF 内嵌浏览器（登录 / 抖音解析）依赖系统 GTK3 / NSS 等库，主流发行版默认已有；
+AppImage 打包首次会下载 linuxdeploy 工具链到 Gradle 缓存。
+
 ## 命令
+
+Windows：
 
 ```powershell
 git clone https://github.com/tidain/YunX-Desktop.git
@@ -29,6 +45,14 @@ cd YunX-Desktop
 ```
 
 也可双击 `run.bat`（走同一入口）。中文向导语言包随仓库分发（`installer\ChineseSimplified.isl`）。
+
+Linux：
+
+```bash
+./run.sh run         # 编译并启动（开发）
+./run.sh build       # 仅编译
+./run.sh package     # AppImage → desktop/build/compose/binaries/main/appImage/
+```
 
 ## 版本号
 

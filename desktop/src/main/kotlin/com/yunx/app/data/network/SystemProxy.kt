@@ -2,6 +2,7 @@ package com.yunx.app.data.network
 
 import com.sun.jna.platform.win32.Advapi32Util
 import com.sun.jna.platform.win32.WinReg
+import com.yunx.app.util.HostOs
 import com.yunx.app.util.Log
 
 /**
@@ -47,11 +48,12 @@ object SystemProxy {
 
     /**
      * 读取本机系统代理并解析。返回 [Inspect.Proxy] 表示可用，其余一律按直连处理。
-     * 调用方据此装配全局代理；本函数只读一次注册表。
+     * 调用方据此装配全局代理；Windows 读一次注册表，Linux 读一次环境变量。
      */
     fun inspect(): Inspect {
         if (!isWindows) {
-            Log.i(TAG, "非 Windows 平台，不支持系统代理，按直连处理")
+            if (HostOs.isLinux) return inspectLinuxEnv()
+            Log.i(TAG, "非 Windows/Linux 平台，不支持系统代理，按直连处理")
             return Inspect.Unavailable
         }
         val enable = readInt("ProxyEnable") ?: 0
@@ -59,6 +61,35 @@ object SystemProxy {
         val pac = readString("AutoConfigURL")
         val override = readString("ProxyOverride")
         return parse(enable, server, pac, override)
+    }
+
+    /**
+     * Linux：读 shell/桌面会话注入的代理环境变量（GNOME「网络代理」设为手动时也会注入）。
+     * 优先 https_proxy（客户端流量以 https 为主），其次 all_proxy / http_proxy。
+     * socks:// 前缀由 [parseHostPort] 的 scheme 剥离逻辑处理。
+     */
+    private fun inspectLinuxEnv(): Inspect {
+        val env = System.getenv()
+        val raw = listOf("https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY", "http_proxy", "HTTP_PROXY")
+            .firstNotNullOfOrNull { name -> env[name]?.takeIf { it.isNotBlank() } }
+        if (raw == null) {
+            Log.i(TAG, "Linux 未配置代理环境变量，按直连处理")
+            return Inspect.Direct
+        }
+        // OkHttp 装配的是 HTTP 代理；socks:// 值语义不符，跳过（记日志，不静默）
+        if (raw.substringBefore("://").equals("socks", ignoreCase = true) ||
+            raw.substringBefore("://").equals("socks5", ignoreCase = true)
+        ) {
+            Log.w(TAG, "代理环境变量是 SOCKS 代理（$raw），本应用仅支持 HTTP 代理，按直连处理")
+            return Inspect.Direct
+        }
+        val parsed = parseServer(raw)
+        if (parsed == null) {
+            Log.w(TAG, "代理环境变量无法解析（$raw），按直连处理")
+            return Inspect.Direct
+        }
+        Log.i(TAG, "Linux 系统代理（环境变量）：${parsed.host}:${parsed.port}")
+        return parsed
     }
 
     /**

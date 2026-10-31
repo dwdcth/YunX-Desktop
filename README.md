@@ -140,7 +140,7 @@
 
 ## 构建
 
-要求：Windows 10/11 x64，另需一个 **C++ 编译器**（托盘菜单配色桥接层用；缺它时 `run` / `package` /
+**Windows**（10/11 x64）：另需一个 **C++ 编译器**（托盘菜单配色桥接层用；缺它时 `run` / `package` /
 `installer` 会在这一步失败）。JDK、Gradle、Inno Setup 均无需手动安装。
 
 ```powershell
@@ -152,6 +152,27 @@ cd YunX-Desktop
 .\run.ps1 package    # 免安装便携版 → release\YunX-Desktop\
 .\run.ps1 installer  # 单文件安装程序 → release\YunX-Desktop-setup-*.exe
 ```
+
+**Linux**（x86_64，主流发行版）：需 JDK 17（如 Arch 系 `sudo pacman -S jdk17-openjdk`）、
+`ffmpeg`（视频预览 / 合轨，`sudo pacman -S ffmpeg`）；Gradle 由 wrapper 自动拉取。
+
+```bash
+git clone https://github.com/tidain/YunX-Desktop.git
+cd YunX-Desktop
+
+./run.sh run         # 编译并启动（开发）
+./run.sh build       # 仅编译
+./run.sh package     # AppImage（免安装，首次会下载 linuxdeploy 工具链）
+```
+
+> Linux 第一版说明：内嵌 Chromium 登录与抖音解析可用（jcefmaven linux-amd64 原生包）；
+> ffplay 视频预览以独立窗口播放（不做窗口嵌入）；托盘右键菜单为 Swing 样式；
+> 浏览器 Cookie 一键导入支持 Firefox（Chromium 系走 keyring 加密，暂不支持）；
+> 下载期间防系统休眠、通知中心进度条为 Windows 专属功能。
+>
+> **高分屏（HiDPI）**：Linux 的 JVM 在 XWayland 下只能拿到整数缩放，应用启动时会读
+> KDE 桌面缩放并四舍五入后补偿（如 1.6 → 2 倍渲染，清晰不模糊）。觉得偏大或偏小可用
+> 环境变量 `YUNXPC_UI_SCALE`（如 `YUNXPC_UI_SCALE=1.6`，设 `1`/`off` 关闭补偿）调整。
 
 环境要求、版本号管理与打包产物见 **[构建与打包](docs/BUILD.md)**。
 
