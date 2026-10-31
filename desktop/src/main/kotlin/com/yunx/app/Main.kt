@@ -202,11 +202,16 @@ fun main(args: Array<String>) {
                     (window as? java.awt.Frame)?.let { WindowFx.scheduleFadeIn(it) }
                 }
             }
-            // 系统托盘：右键菜单跨平台（Windows 用 Win32 原生菜单，Linux/macOS 用 Swing）
+            // 系统托盘：Linux/macOS 用 AWT 原生菜单（ActionEvent 激活窗口），Windows 用 Win32 原生菜单
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 TrayManager.loadTrayIcon()?.let { icon ->
                     TrayManager.install(
                         image = icon,
+                        menuItems = listOf(
+                            "显示主窗口" to 1,
+                            "-" to 0,
+                            "退出" to 2
+                        ),
                         onLeftClick = { DesktopActions.bringWindowToFront(mainWindow) },
                         onRightClick = { x, y ->
                             TrayMenu.show(
@@ -218,7 +223,8 @@ fun main(args: Array<String>) {
                                 x = x, y = y,
                                 onCommand = { cmd -> handleTrayCommand(cmd, mainWindow) }
                             ).let { cmd -> if (cmd != 0) handleTrayCommand(cmd, mainWindow) }
-                        }
+                        },
+                        onMenuCommand = { cmd -> handleTrayCommand(cmd, mainWindow) }
                     )
                 }
             }

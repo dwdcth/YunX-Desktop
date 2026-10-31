@@ -1,6 +1,7 @@
 package com.yunx.app.util
 
 import java.awt.Image
+import java.awt.MenuItem
 import java.awt.PopupMenu
 import java.awt.SystemTray
 import java.awt.TrayIcon
@@ -27,14 +28,26 @@ object TrayManager {
 
     /**
      * 安装托盘图标。
+     *
+     * 各平台可靠的事件通道不同（多通道并存，动作均幂等，重复触发无害）：
+     * - Windows：MouseListener（press）左键激活、右键弹 Win32 原生菜单（[onRightClick]）；
+     * - Linux(XEmbed)：MouseListener 经 xembedsniproxy 转发**不可靠**（click 从不触发、
+     *   press/released 视环境而定），官方通道是 [TrayIcon.addActionListener]（左键单击即
+     *   ActionEvent）+ **AWT PopupMenu**（右键由 peer 层直接弹出，不走 MouseListener）；
+     * - macOS：ActionEvent 可靠。
+     *
      * @param image 图标
+     * @param menuItems 托盘菜单项（label to id，"-" 为分隔符）；Linux/macOS 构建为 AWT 原生菜单
      * @param onLeftClick 左键单击回调
-     * @param onRightClick 右键回调（屏幕坐标 x, y）
+     * @param onRightClick 右键回调（屏幕坐标 x, y；Windows 用于弹 Win32 原生菜单）
+     * @param onMenuCommand 菜单项选中回调（Linux/macOS 的 AWT 菜单；Windows 菜单走同步返回值，不经此）
      */
     fun install(
         image: BufferedImage,
+        menuItems: List<Pair<String, Int>>,
         onLeftClick: () -> Unit,
-        onRightClick: (Int, Int) -> Unit
+        onRightClick: (Int, Int) -> Unit,
+        onMenuCommand: (Int) -> Unit
     ) {
         if (!SystemTray.isSupported()) {
             Log.w(TAG, "SystemTray 不可用，托盘功能关闭")
@@ -44,16 +57,34 @@ object TrayManager {
 
         val icon = TrayIcon(image.getScaledInstance(16, 16, Image.SCALE_SMOOTH), "云析 YunX-Desktop").apply {
             isImageAutoSize = true
-            if (HostOs.isWindows) {
-                // Windows 必须设（哪怕空的）PopupMenu 才能收到右键事件；
-                // Linux(XEmbed) 上设了反而吞掉右键，macOS 无此机制 —— 都不设
-                popupMenu = PopupMenu()
+            when {
+                HostOs.isWindows -> {
+                    // Windows 必须设（哪怕空的）PopupMenu 才能收到右键事件；菜单由 Win32 弹（暗色/原生）
+                    popupMenu = PopupMenu()
+                }
+                else -> {
+                    // Linux/macOS：AWT 原生 PopupMenu 就是右键菜单本体（X11TrayIconPeer 在
+                    // 右键时直接 show 该菜单，不经过 MouseListener）
+                    popupMenu = PopupMenu().apply {
+                        for ((label, id) in menuItems) {
+                            if (label == "-") {
+                                addSeparator()
+                            } else {
+                                add(MenuItem(label).apply {
+                                    addActionListener { onMenuCommand(id) }
+                                })
+                            }
+                        }
+                    }
+                }
             }
+            // 左键：ActionEvent 是 Linux/macOS 的可靠通道（X11 单击即触发；Windows 双击触发，
+            // 与 mouseClicked 单击激活叠加亦幂等）
+            addActionListener { onLeftClick() }
             addMouseListener(object : MouseAdapter() {
-                // 统一用 mousePressed 分发：Linux(XEmbed/xembedsniproxy) 上 mouseClicked
-                // 从不触发（JDK 已知行为），Windows 上按下即响应也更接近原生托盘手感
                 override fun mousePressed(e: MouseEvent) {
                     when (e.button) {
+                        // 兜底通道：事件能到的环境立即响应（Windows 必达；Linux 部分环境可达）
                         MouseEvent.BUTTON1 -> onLeftClick()
                         MouseEvent.BUTTON3 -> {
                             e.consume()
