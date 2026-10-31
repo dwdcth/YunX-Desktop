@@ -27,7 +27,7 @@ object TrayManager {
 
     /** SNI 托盘句柄（dorkbox），null = 未启用 SNI 路径 */
     @Volatile
-    private var sniTray: Any? = null
+    private var sniTray: dorkbox.systemTray.SystemTray? = null
 
     private var trayIcon: TrayIcon? = null
 
@@ -151,13 +151,14 @@ object TrayManager {
         Log.w(TAG, "SNI 托盘不可用（${it.message}），回退 AWT")
     }.getOrDefault(false)
 
-    /** 移除托盘图标 */
+    /** 移除托盘图标（应用退出时调用；dorkbox 的 GTK/DBus 线程也一并停掉） */
     fun uninstall() {
         sniTray?.let { tray ->
             runCatching {
-                val m = tray.javaClass.getMethod("remove")
-                m.invoke(tray)
-            }
+                // shutdown 停止托盘、GTK 主循环与 D-Bus 连接 —— 不停的话这些线程
+                // 可能在退出期与 AWT 的 X 连接操作纠缠（native 死锁，界面冻结）
+                tray.shutdown()
+            }.onFailure { Log.w(TAG, "SNI tray shutdown failed: ${it.message}") }
             sniTray = null
         }
         trayIcon?.let { icon ->

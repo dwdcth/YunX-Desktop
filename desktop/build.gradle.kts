@@ -102,10 +102,12 @@ dependencies {
 
     // Linux 托盘：JDK AWT TrayIcon 走已淘汰的 XEmbed 协议，新桌面（KDE 6/GNOME）不转发其
     // 点击事件（图标能显示但永远无反应，JDK-8341144 上游无修复计划）；dorkbox SystemTray
-    // 走原生 StatusNotifierItem/DBus，KDE/GNOME 原生渲染菜单。仅 Linux 构建打入，
-    // Windows 继续用 AWT+Win32（暗色原生菜单），失败时 Linux 也回退 AWT 兜底。
+    // 走原生 StatusNotifierItem/DBus，KDE/GNOME 原生渲染菜单。
+    // ★ compileOnly 全平台（TrayManager 的代码引用其类，Windows/macOS 也要能编译）；
+    //   runtimeOnly 仅 Linux（不进 Windows/macOS 发布包，运行时只在 Linux 加载）。
+    compileOnly("com.dorkbox:SystemTray:4.4")
     if (!isWindowsHost && !isMacHost) {
-        implementation("com.dorkbox:SystemTray:4.4")
+        runtimeOnly("com.dorkbox:SystemTray:4.4")
     }
 
     testImplementation(kotlin("test"))

@@ -159,14 +159,32 @@ fun main(args: Array<String>) {
         // 窗口状态提升为可共享状态：视频预览的全屏开关（PreviewFullscreen）需要它
         val windowState = remember { WindowState(size = DpSize(1100.dp, 760.dp)) }
 
-        // 托盘菜单命令处理（Windows 原生菜单同步返回 id；Linux/macOS Swing 菜单异步回调）
+        /**
+         * 统一退出路径：
+         * 1. 先卸托盘 —— 停掉 dorkbox 的 GTK 主循环/D-Bus 线程，避免它们在窗口销毁期
+         *    与 AWT 的 X 连接操作纠缠（Linux 下 native 层死锁会让界面冻结、进程退不出）；
+         * 2. 起 6 秒看门狗 —— 退出链路（窗口销毁 + shutdown hooks：CEF dispose、
+         *    DB checkpoint…）若被任何环节挂起，超时 halt 强杀，保证应用永远能退出。
+         */
+        fun exitAppNow(w: java.awt.Frame?) {
+            runCatching { TrayManager.uninstall() }
+            Thread {
+                try { Thread.sleep(6_000L) } catch (_: InterruptedException) {}
+                Runtime.getRuntime().halt(0)
+            }.apply {
+                isDaemon = true
+                name = "yunx-exit-watchdog"
+                start()
+            }
+            if (w != null) WindowFx.fadeOutThen(w) { exitApplication() }
+            else exitApplication()
+        }
+
+        // 托盘菜单命令处理（Windows 原生菜单同步返回 id；Linux/macOS 菜单异步回调）
         fun handleTrayCommand(cmd: Int, w: java.awt.Frame?) {
             when (cmd) {
                 1 -> DesktopActions.bringWindowToFront(w)
-                2 -> {
-                    if (w != null) WindowFx.fadeOutThen(w) { exitApplication() }
-                    else exitApplication()
-                }
+                2 -> exitAppNow(w)
             }
         }
 
@@ -233,9 +251,7 @@ fun main(args: Array<String>) {
                     closeRequested = closeRequested,
                     onCloseHandled = { closeRequested = false },
                     onExitApplication = {
-                        val w = mainWindow
-                        if (w != null) WindowFx.fadeOutThen(w) { exitApplication() }
-                        else exitApplication()
+                        exitAppNow(mainWindow)
                     },
                     onMinimizeToTray = {
                         // 隐藏窗口前先抑制关闭请求，避免 Compose 把 hide 当作 close 重跑逻辑
