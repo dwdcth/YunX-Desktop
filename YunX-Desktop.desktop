@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=云析 YunX-Desktop
+Name[en]=YunX-Desktop
+Comment=网盘分享链接解析与高速下载（开发运行版）
+Comment[en]=Netdisk share-link parser and high-speed downloader (dev)
+Exec=/home/banshan/项目/YunX-Desktop/app-run.sh
+Icon=/home/banshan/项目/YunX-Desktop/desktop/packaging/YunX-Desktop.png
+Path=/home/banshan/项目/YunX-Desktop
+Terminal=false
+Categories=Network;FileTransfer;
+Keywords=yunx;netdisk;downloader;
+StartupWMClass=com-yunx-app-MainKt

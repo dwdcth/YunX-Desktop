@@ -29,6 +29,19 @@
 ./run.sh package    # 打 AppImage
 ```
 
+### 开发模式桌面图标（改代码即生效，无需安装）
+
+`./run.sh install-desktop` 会生成 `.desktop` 并装进应用菜单（同时留一份在项目根
+`YunX-Desktop.desktop`）。它的 `Exec` 指向项目内的 `app-run.sh`，后者直接运行
+`desktop/build/` 下的构建产物（classpath 由 `:desktop:jar` 构建自动写入
+`desktop/build/dev-classpath.txt`）。因此工作流是：
+
+```bash
+./run.sh install-desktop   # 一次性安装
+# 以后每次改完代码：
+./run.sh build             # 图标下次点击即运行新代码
+```
+
 ### HiDPI 说明
 
 Linux 的 JVM 跑在 XWayland 下只能拿到**整数**缩放（KDE/GNOME 的 1.5/1.6 等分数缩放不可见），

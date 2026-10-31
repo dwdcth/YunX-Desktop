@@ -265,6 +265,23 @@ tasks.register<Sync>("exportRuntimeLibs") {
     into(layout.projectDirectory.dir("build/exportLibs"))
 }
 
+// 开发桌面集成（.desktop 图标直接跑构建产物）：jar 完成后把「应用 jar + 全部运行时依赖
+// （含 JCEF 原生包）」的完整 classpath 写入 build/dev-classpath.txt，供项目根的 app-run.sh 读取。
+// 改代码后只需 ./run.sh build（即 :desktop:jar），桌面图标即运行最新代码，无需重新安装。
+val writeDevClasspath by tasks.registering {
+    dependsOn("jar")
+    val outFile = layout.buildDirectory.file("dev-classpath.txt")
+    outputs.file(outFile)
+    doLast {
+        val mainJar = layout.buildDirectory.file("libs/desktop.jar").get().asFile
+        val deps = configurations.runtimeClasspath.get().files
+        (sequenceOf(mainJar) + deps.sortedBy { it.name })
+            .joinToString(File.pathSeparator) { it.absolutePath }
+            .let { outFile.get().asFile.writeText(it) }
+    }
+}
+tasks.named("jar") { finalizedBy(writeDevClasspath) }
+
 // 单独导出 jcef 原生包，供打包脚本重压成 tar.xz
 tasks.register<Sync>("exportJcefNatives") {
     from(configurations.runtimeClasspath) { include("jcef-natives-*.jar") }
