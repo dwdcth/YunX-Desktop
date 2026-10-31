@@ -13,7 +13,7 @@
 | 凭证加密（普通档） | ✅（机器指纹 = `/etc/machine-id`） |
 | ffplay 视频预览 | ✅ 独立窗口播放（不嵌入应用窗口，嵌入仅 Windows） |
 | 浏览器 Cookie 一键导入 | ⚠️ 仅 Firefox（Chromium 系 cookie 走 keyring 加密，暂不支持） |
-| 系统托盘 | ✅ dorkbox SystemTray（原生 StatusNotifierItem/DBus，KDE 原生菜单；见下） |
+| 系统托盘 | ✅ dorkbox SystemTray（原生 StatusNotifierItem/DBus，菜单原生渲染；通知走 notify-send） |
 | 系统代理（system 模式） | ✅ 读 `https_proxy` / `all_proxy` / `http_proxy` 环境变量（SOCKS 值跳过并记日志） |
 | 高分屏（HiDPI） | ✅ 自动读 KDE 缩放并补偿（见下文） |
 | 下载防休眠 / 通知中心进度条 | ❌ Windows 专属，Linux 下 no-op（不影响下载本身） |
@@ -60,7 +60,15 @@ JDK 的 AWT TrayIcon 走**已淘汰的 XEmbed 协议**，新桌面（KDE 6 / GNO
 （Apache 2.0，仅 Linux 构建打入，Windows 继续用 AWT + Win32 暗色菜单），走原生
 **StatusNotifierItem / D-Bus**：图标与菜单由桌面环境原生渲染，交互是 D-Bus 方法调用
 （不经 X 事件转发），KDE/GNOME 下可靠。dorkbox 初始化失败时自动回退 AWT（仅图标可见）。
-注意：SNI 模式下 tooltip 与"左键单击激活"支持有限，请以右键菜单（首项即「显示主窗口」）为准。
+
+使用注意：
+
+- 新图标默认在 KDE 托盘**折叠区**（面板 `^` 展开），右键图标可设为「始终显示」；
+- **右键菜单是主要交互**（首项即「显示主窗口」）；SNI 的左键单击（Activate 信号）
+  支持有限，没反应属协议特性；
+- 系统通知（如「已最小化到托盘」）走 `notify-send`（org.freedesktop.Notifications），
+  依赖发行版自带该命令（KDE/GNOME 标配）；
+- 升级 dorkbox 时注意 4.x 系列 API 变化，`TrayManager.installSni` 集中封装了全部调用。
 
 ### Linux 专属环境变量
 
@@ -91,7 +99,7 @@ JDK 的 AWT TrayIcon 走**已淘汰的 XEmbed 协议**，新桌面（KDE 6 / GNO
 | 文件 | 作用 |
 | --- | --- |
 | `util/HostOs.kt` | 统一平台判断 + JavaFX classifier / Gopeed 包名 token |
-| `util/TrayMenu.kt` | 托盘右键菜单跨平台入口（Windows→Win32 原生菜单，其余→Swing JPopupMenu） |
+| `util/TrayMenu.kt` | 托盘右键菜单跨平台入口（Windows→Win32 原生菜单，其余→Swing JPopupMenu；Linux SNI 模式下作为 AWT 回退路径保留） |
 | `util/UiScaleSetup.kt` | Linux HiDPI 补偿（读 KDE 缩放→`sun.java2d.uiScale`，main 第一行调用） |
 | `gradlew` / `gradlew.bat` | 仓库原先缺失的 wrapper 脚本 |
 | `run.sh` | Linux 构建入口（run/build/package） |
@@ -108,12 +116,14 @@ JDK 的 AWT TrayIcon 走**已淘汰的 XEmbed 协议**，新桌面（KDE 6 / GNO
 - `settings.gradle.kts`：加 foojay toolchain 插件（无本机 JDK 17 时自动下载，对齐 Windows 版 run.ps1 的 Ensure-Jdk）。
 - `gradle.properties`：`compose.desktop.packaging.checkJdkVendor=false`（发行版 OpenJDK 打包需要）。
 - `gradle/wrapper/gradle-wrapper.properties`：Gradle 发行版改腾讯镜像。
+- 依赖：`com.dorkbox:SystemTray:4.4`（仅 Linux 构建打入，原生 SNI 托盘，见「托盘说明」）。
 
 **运行时守卫 / 平台分支（上游活跃文件，见下方冲突指南）**
 
 | 文件 | 改动要点 |
 | --- | --- |
-| `Main.kt` | 托盘右键改走 `TrayMenu`（新增 `handleTrayCommand` 局部函数）；JCEF/抖音预热加 `!HostOs.isMac` 守卫；main 首行调 `UiScaleSetup.applyEarly()` |
+| `Main.kt` | 托盘安装走 `TrayManager`（Linux 优先 SNI，见下）；JCEF/抖音预热加 `!HostOs.isMac` 守卫；main 首行调 `UiScaleSetup.applyEarly()` |
+| `TrayManager.kt` | 托盘按平台分路：Linux 优先 dorkbox SystemTray（原生 SNI/DBus，`installSni`），失败回退 AWT；Windows 保持 AWT+Win32；macOS 用 AWT 菜单。SNI 模式通知走 `notify-send` |
 | `WindowsKeepAwake.kt` | `acquire/release` 非 Windows 直接 return |
 | `DbKeyStore.kt` | 机器指纹：Windows 读注册表 MachineGuid，Linux 读 `/etc/machine-id`；STRICT 档（DPAPI）非 Windows `isSupported=false` |
 | `SystemProxy.kt` | Linux 读 `*_proxy` 环境变量（SOCKS 跳过） |
@@ -158,6 +168,6 @@ git merge upstream/main
 1. 便携版打包脚本（对应 `portable-package.ps1` 的 bash 版：runtime + app + jcef-natives.tar.xz）
 2. Chromium Cookie 导入（需 gnome-keyring/libsecret 解密 v11 cookie）
 3. 下载防休眠：org.freedesktop.ScreenSaver D-Bus inhibitor
-4. 通知：org.freedesktop.Notifications（当前用托盘气泡，可用）
+4. SNI 左键单击激活（Activate/SecondaryActivate 信号，依赖 dorkbox 暴露回调；当前用右键菜单）
 5. ffplay X11 窗口嵌入（XReparentWindow，Wayland 下不可行，优先级低）
 6. 单实例唤醒已有窗口（Linux 无跨进程窗口枚举，可考虑 D-Bus 自有服务）

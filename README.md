@@ -166,9 +166,10 @@ cd YunX-Desktop
 ```
 
 > Linux 第一版说明：内嵌 Chromium 登录与抖音解析可用（jcefmaven linux-amd64 原生包）；
-> ffplay 视频预览以独立窗口播放（不做窗口嵌入）；托盘右键菜单为 Swing 样式；
+> ffplay 视频预览以独立窗口播放（不做窗口嵌入）；系统托盘走原生 StatusNotifierItem
+> 协议（图标与右键菜单由桌面环境原生渲染；左键单击激活支持有限，请用右键菜单）；
 > 浏览器 Cookie 一键导入支持 Firefox（Chromium 系走 keyring 加密，暂不支持）；
-> 下载期间防系统休眠、通知中心进度条为 Windows 专属功能。
+> 下载期间防系统休眠、通知中心下载进度条为 Windows 专属功能。
 >
 > **高分屏（HiDPI）**：Linux 的 JVM 在 XWayland 下只能拿到整数缩放，应用启动时会读
 > KDE 桌面缩放并四舍五入后补偿（如 1.6 → 2 倍渲染，清晰不模糊）。觉得偏大或偏小可用

@@ -169,14 +169,19 @@ object TrayManager {
     /**
      * 显示系统通知。
      *
-     * 走 AWT 托盘图标的原生气泡（Windows 10/11 会归入通知中心）。
-     * 注意：托盘图标必须处于可见状态，否则 Windows 不会显示。
-     * 这里不能用 Compose 的 TrayState —— 托盘图标已改为手写 AWT TrayIcon，没有 TrayState 实例。
+     * Windows 走 AWT 托盘气泡（归入通知中心）；SNI 模式（Linux）没有 AWT 托盘图标，
+     * 改用 `notify-send`（org.freedesktop.Notifications，KDE/GNOME 原生通知，发行版标配）。
      */
     fun showNotification(title: String, message: String) {
+        if (sniTray != null) {
+            runCatching {
+                ProcessBuilder("notify-send", "-a", "YunX-Desktop", title, message).start()
+            }.onFailure { Log.w(TAG, "notify-send failed: ${it.message}") }
+            return
+        }
         val icon = trayIcon ?: return
         runCatching { icon.displayMessage(title, message, TrayIcon.MessageType.NONE) }
-            .onFailure { Log.w("YunX-Tray", "showNotification failed: ${it.message}") }
+            .onFailure { Log.w(TAG, "showNotification failed: ${it.message}") }
     }
 
     /** 从 classpath 加载 icon.png */
